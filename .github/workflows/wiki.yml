@@ -1,0 +1,50 @@
+name: Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "src/**"
+      - "scripts/build_wiki.py"
+      - "scripts/publish_wiki.sh"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+# `contents: write` cobre o push no <repo>.wiki.git com o GITHUB_TOKEN.
+permissions:
+  contents: write
+
+# Fila, sem cancelar: dois pushes seguidos publicam em ordem.
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publica o wiki
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: pyproject.toml
+
+      # Doctest antes: exemplo quebrado na docstring não chega ao wiki.
+      - name: Testes e doctests
+        run: |
+          uv sync --locked
+          uv run --no-sync pytest
+
+      - name: Gera o wiki
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          uv run --no-sync python -m scripts.build_wiki --out build/wiki \
+            --ref "$GITHUB_SHA" --repo-url "$REPO_URL"
+
+      - name: Publica no <repo>.wiki.git
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/publish_wiki.sh build/wiki

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint e type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: pyproject.toml
+
+      - name: uv.lock em dia
+        run: uv lock --check
+
+      - name: pre-commit (ruff, pyright e demais hooks)
+        run: |
+          uv sync --locked
+          uv run pre-commit run --all-files --show-diff-on-failure
+
+  test:
+    name: Testes e doctests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: pyproject.toml
+
+      - run: uv sync --locked
+
+      - run: uv run --no-sync pytest
+
+  # Prévia na PR: o wiki que sairia deste commit, como artefato. Não publica.
+  wiki-preview:
+    name: Prévia do wiki
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version-file: pyproject.toml
+
+      - name: Gera o wiki
+        env:
+          REF: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          uv sync --locked
+          uv run --no-sync python -m scripts.build_wiki --out build/wiki \
+            --ref "$REF" --repo-url "$REPO_URL"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wiki
+          path: build/wiki/
+          if-no-files-found: error
